@@ -16,7 +16,7 @@ export function createQuizPanel({ getContext, save, element }) {
   async function request(path, data) {
     const response = await fetch(path, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data), signal: AbortSignal.timeout(105000),
+      body: JSON.stringify(data), signal: AbortSignal.timeout(270000),
     });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "The AI request failed. Please try again.");
@@ -47,7 +47,7 @@ export function createQuizPanel({ getContext, save, element }) {
   async function generate(context) {
     const key = keyFor(context);
     if (busy.has(key)) return;
-    busy.set(key, "Creating your questions… This can take about a minute.");
+    busy.set(key, "Creating your questions… Local AI may take 1–4 minutes.");
     errors.delete(key);
     render();
     try {
@@ -105,6 +105,10 @@ export function createQuizPanel({ getContext, save, element }) {
   }
 
   function renderSetup() {
+    if (status?.provider === "ollama") {
+      container.append(element("p", "access-note", `Local AI: ${status.model}. Questions and answers are processed on this computer using Ollama. No API key is needed.`));
+      return;
+    }
     const details = element("details", "ai-setup");
     details.open = status?.configured === false;
     details.append(element("summary", "", status?.configured ? "AI setup & privacy" : "Parent setup: connect OpenAI"));
@@ -232,7 +236,7 @@ export function createQuizPanel({ getContext, save, element }) {
       const button = element("button", "quiz-primary", working ? "AI is reviewing…" : "Submit for feedback");
       button.type = "submit";
       button.disabled = Boolean(working) || !status?.configured;
-      form.append(element("p", "quiz-description", "Submitting sends your short answers to OpenAI for feedback. Once graded, this attempt is saved as read-only."), button);
+    form.append(element("p", "quiz-description", status?.provider === "ollama" ? "Ollama on this computer grades your answers and explains mistakes. Once graded, this attempt is saved as read-only." : "Submitting sends your short answers to OpenAI for feedback. Once graded, this attempt is saved as read-only."), button);
       form.addEventListener("submit", (event) => { event.preventDefault(); submit(getContext()); });
     }
     container.append(form);
@@ -241,3 +245,4 @@ export function createQuizPanel({ getContext, save, element }) {
   checkSetup();
   return { render };
 }
+

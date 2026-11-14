@@ -317,3 +317,27 @@ test("quiz endpoints reject cross-site calls and arbitrary article URLs and expo
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test("Ollama generates private quizzes without cloud credentials and rejects truncated output", async () => {
+  const dataDir = await mkdtemp(join(tmpdir(), "ollama-quiz-"));
+  let truncated = true;
+  const service = createQuizService({dataDir, apiKey: "", ollamaUrl: "http://local-model:11434/", model: "local-test", loadArticle: async () => articleFixture,
+    fetchImpl: async (url, options) => {
+      assert.equal(url, "http://local-model:11434/api/chat");
+      assert.equal(options.headers.Authorization, undefined);
+      const body = JSON.parse(options.body);
+      assert.equal(body.stream, false);
+      assert.equal(body.model, "local-test");
+      assert.equal(JSON.parse(body.messages[1].content).articleText, articleFixture.body);
+      assert.ok(body.format.properties.multipleChoice);
+      return new Response(JSON.stringify({done:true,done_reason:truncated ? "length" : "stop",message:{content:JSON.stringify(generatedQuiz())}}));
+    }});
+  try {
+    assert.equal(service.status().provider, "ollama");
+    await assert.rejects(service.generate(quizInput), {status:502});
+    truncated = false;
+    const quiz = await service.generate(quizInput);
+    assert.equal(quiz.multipleChoice.length, 5);
+    assert.equal(quiz.multipleChoice[0].correctIndex, undefined);
+  } finally { await rm(dataDir, {recursive:true,force:true}); }
+});
