@@ -73,9 +73,9 @@ export function createQuizService({
         const response = await fetchImpl(`${ollamaUrl.replace(/\/$/, "")}/api/chat`, {
           method: "POST", signal: AbortSignal.timeout(240000),
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ model, stream: false, format: schema,
+          body: JSON.stringify({ model, stream: false, think: false, format: schema,
             messages: [{ role: "system", content: instructions }, { role: "user", content: JSON.stringify(data) }],
-            options: { temperature: 0.2, num_ctx: 8192, num_predict: 4000, num_gpu: 0 }, keep_alive: "5m" }),
+            options: { temperature: 0.2, num_ctx: 8192, num_predict: 4000 }, keep_alive: "5m" }),
         });
         if (!response.ok) throw new QuizError(502, `Local Ollama returned HTTP ${response.status}. Check the configured model.`);
         const result = await response.json();
@@ -128,7 +128,7 @@ export function createQuizService({
   }
 
   async function generate({ grade, date, link }) {
-    const id = digest(["quiz-v1", grade, date, link]);
+    const id = digest(["quiz-v1", ollamaUrl ? model : "openai", grade, date, link]);
     const key = `generate-${id}`;
     if (pending.has(key)) return pending.get(key);
     const job = (async () => {
