@@ -1,0 +1,5 @@
+.git
+.little-daily
+.env*
+node_modules
+test

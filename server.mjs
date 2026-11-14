@@ -112,7 +112,8 @@ export function createServer({ quizService } = {}) {
     res.setHeader("Cache-Control", "no-store");
     try {
       const host = req.headers.host;
-      if (!/^(localhost|127\.0\.0\.1)(:\d+)?$/.test(host ?? "")) {
+      const allowedHosts = (process.env.ALLOWED_HOSTS || "").split(",").map((value) => value.trim()).filter(Boolean);
+      if (!/^(localhost|127\.0\.0\.1)(:\d+)?$/.test(host ?? "") && !allowedHosts.includes(host)) {
         res.writeHead(403); res.end("Local access only"); return;
       }
       const url = new URL(req.url, "http://localhost");
@@ -180,5 +181,5 @@ export function createServer({ quizService } = {}) {
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const port = Number(process.env.PORT || 3000);
-  createServer().listen(port, "127.0.0.1", () => console.log(`Little Daily is ready: http://localhost:${port}`));
+  createServer().listen(port, process.env.HOST || "127.0.0.1", () => console.log(`Little Daily is ready: http://localhost:${port}`));
 }
