@@ -157,7 +157,7 @@ export function createServer({ quizService } = {}) {
           res.end(JSON.stringify({ error: "Invalid grade or date." })); return;
         }
         try {
-          const { body, ...article } = selectArticle(await loadArticles(grade), date);
+          const article = selectArticle(await loadArticles(grade), date);
           res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
           res.end(JSON.stringify(article));
         } catch (error) {

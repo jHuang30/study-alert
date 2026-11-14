@@ -70,7 +70,15 @@ function renderReading() {
     link.href = article.link;
     link.target = "_blank";
     link.rel = "noopener noreferrer";
-    container.append(link, element("p", "access-note", "Links to the original article only. Some stories may require registration or a subscription."));
+    if (article.body) {
+      const reading = element("section", "article-text");
+      reading.setAttribute("aria-label", "Article text");
+      reading.append(element("p", "", article.body));
+      container.append(reading);
+    } else {
+      container.append(element("p", "muted", errors.get(key) || "Loading article text…"));
+    }
+    container.append(link, element("p", "access-note", "Text supplied by the publisher's news feed. Visit the original for images and full formatting."));
   } else if (selectedDate !== today) {
     container.append(element("p", "muted", "No reading recommendation was saved for this day."));
   } else {
@@ -87,7 +95,7 @@ function renderReading() {
 
 async function loadReading(targetGrade, date) {
   const key = `${date}-${targetGrade}`;
-  if (!usable || date !== today || state.days[date]?.[targetGrade].article || loading.has(key)) return;
+  if (!usable || date !== today || state.days[date]?.[targetGrade].article?.body || loading.has(key)) return;
   loading.add(key);
   errors.delete(key);
   renderReading();
@@ -102,7 +110,7 @@ async function loadReading(targetGrade, date) {
         !Number.isFinite(Date.parse(article.published))) throw new Error("The news source returned invalid data.");
     if (!update((next) => {
       const day = ensureDay(next, date);
-      if (!day[targetGrade].article) day[targetGrade].article = article;
+      if (!day[targetGrade].article || day[targetGrade].article.link === article.link) day[targetGrade].article = article;
     })) errors.set(key, "The article was fetched but could not be saved. Check your browser storage and try again.");
   } catch (error) {
     errors.set(key, `Unable to load your recommendation. ${error.message}`);
