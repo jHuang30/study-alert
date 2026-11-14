@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f6f5f0">
+  <title>Little Daily · Small steps, every day</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="page">
+    <header class="topbar">
+      <a class="brand" href="/"><span class="brand-icon" aria-hidden="true">✓</span> little daily<span class="brand-dot">.</span></a>
+      <span class="local-badge"><span></span> Your family's learning space</span>
+    </header>
+    <main>
+      <section class="intro">
+        <div><p class="eyebrow">SMALL STEPS, EVERY DAY</p><h1>A little progress.<br><span>Every single day.</span></h1><p class="subtitle">Check off the little things. Discover a bigger world.</p></div>
+        <div class="date-card"><span id="weekday"></span><strong id="date-label"></strong><span>Make today a good one</span></div>
+      </section>
+      <div class="toolbar">
+        <div class="tabs" role="tablist" aria-label="Choose a grade">
+          <button type="button" role="tab" id="tab-4" aria-selected="true" aria-controls="student-panel" data-grade="4">Grade 4 <span>READER</span></button>
+          <button type="button" role="tab" id="tab-7" aria-selected="false" aria-controls="student-panel" data-grade="7" tabindex="-1">Grade 7 <span>READER</span></button>
+        </div>
+        <label class="history-picker">View date <input id="day-picker" type="date" aria-label="View daily records"></label>
+      </div>
+      <div id="notice" role="alert" hidden></div>
+      <section id="student-panel" role="tabpanel" aria-labelledby="tab-4">
+        <div class="dashboard">
+          <section class="checklist card">
+            <div class="section-heading"><div><p class="eyebrow">MY DAILY CHECKLIST</p><h2>Today's little goals</h2></div><span id="task-count" class="count-badge"></span></div>
+            <div class="progress-heading"><span id="progress-caption"></span><strong id="progress-percent"></strong></div>
+            <progress id="progress" value="0" max="100" aria-label="Checklist completion"></progress>
+            <ul id="tasks" class="task-list"></ul>
+            <form id="add-form">
+              <label class="sr-only" for="task-input">Add a little goal</label>
+              <div class="add-row"><input id="task-input" maxlength="100" placeholder="Add a little goal…" required autocomplete="off"><button type="submit" class="add-button" aria-label="Add task">＋</button></div>
+              <label class="repeat"><input type="checkbox" id="repeat-input" checked> Repeat daily <span>Uncheck for today only</span></label>
+            </form>
+            <p id="history-note" class="muted" hidden>Past records are read-only. Return to today to add goals.</p>
+            <div id="evening-check" class="evening-check" role="status"></div>
+          </section>
+          <aside class="reading-column">
+            <section class="reading card">
+              <div class="section-heading"><div><p class="eyebrow">A LITTLE WINDOW TO THE WORLD</p><h2>Your daily read</h2></div><span class="book-icon" aria-hidden="true">↗</span></div>
+              <div class="reading-art" aria-hidden="true"><span class="orbit orbit-one"></span><span class="orbit orbit-two"></span><span class="planet"></span><span class="spark spark-one">✦</span><span class="spark spark-two">✧</span><span class="art-caption">STAY CURIOUS.</span></div>
+              <div class="reading-body" id="reading-content" aria-live="polite"></div>
+              <div class="reading-footer">ENGLISH · NONFICTION · ONE A DAY</div>
+            </section>
+            <div class="gentle-note"><span aria-hidden="true">✧</span><div><strong>Read it. Then talk about it.</strong><p>What did you learn today?<br>Share one interesting discovery in your own words.</p></div></div>
+          </aside>
+        </div>
+        <section class="quiz card" aria-labelledby="quiz-heading">
+          <div class="section-heading"><div><p class="eyebrow">READ · THINK · GROW</p><h2 id="quiz-heading">Put your reading to work</h2></div><span class="count-badge">7 questions</span></div>
+          <div id="quiz-content"></div>
+        </section>
+        <section class="family-summary"><div><span class="eyebrow">EVENING CHECK-IN</span><h3>One last check before bedtime.</h3><p>After 7 PM, this page highlights any unfinished goals.</p></div><div id="family-status" aria-live="polite"></div></section>
+      </section>
+    </main>
+    <footer><span class="brand-small">little daily.</span><span>Small habits. Big growth.</span><span>Saved in this browser only · Clearing browser data erases your records</span></footer>
+  </div>
+  <dialog id="delete-dialog">
+    <form method="dialog"><h2>Remove this goal?</h2><p id="delete-label"></p><label id="delete-future-label" class="repeat"><input type="checkbox" id="delete-future"> Stop repeating this goal on future days, too</label><div class="dialog-actions"><button value="cancel">Cancel</button><button value="remove" class="danger">Remove</button></div></form>
+  </dialog>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
