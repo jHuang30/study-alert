@@ -25,7 +25,8 @@ export function createQuizPanel({ getContext, save, element }) {
 
   function showError(error, key) {
     errors.set(key, error.name === "TimeoutError" || error.name === "AbortError" ?
-      "The request timed out. Your saved answers are safe. Please try again." : error.message || "Unable to reach the server. Please try again.");
+      "The request timed out. Your saved answers are safe. Please try again." : error instanceof TypeError ?
+      "Connection to the reading server was interrupted. Your saved answers are safe. Reconnect to the home Wi-Fi, refresh this page, and try again." : error.message || "Unable to reach the server. Please try again.");
   }
 
   async function checkSetup() {

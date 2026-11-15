@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { initialState, ensureDay, addTask, removeTask, validateState, localDate, migrateToEnglish, readingLevel, addDailyActivities } from "../public/model.js";
-import { parseFeed, selectArticle, createServer } from "../server.mjs";
+import { parseFeed, selectArticle, createServer, hasQuizText } from "../server.mjs";
 import { createQuizService, QuizError } from "../quiz.mjs";
 import { initialQuizState, validQuizState } from "../public/quiz-model.js";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -145,6 +145,12 @@ test("HTTP serves the app, rejects invalid inputs, and does not expose arbitrary
 });
 
 const quizInput = { grade: "4", date: "2026-11-06", link: "https://www.timeforkids.com/g34/garden/" };
+test("daily reading excludes feed teasers that quiz generation cannot use", () => {
+  assert.equal(hasQuizText({ body: Array(96).fill("word").join(" ") }), false);
+  assert.equal(hasQuizText({ body: Array(100).fill("word").join(" ") }), true);
+  assert.equal(hasQuizText({}), false);
+  assert.equal(hasQuizText({ body: "word ".repeat(10000) }), false);
+});
 const articleFixture = {
   title: "A school garden", link: quizInput.link,
   body: "Students planted a school garden to grow vegetables for their cafeteria. They chose beans because the plants grow quickly. Every morning, a group checked the soil and watered it if it felt dry. They wrote observations in a shared notebook. After several weeks, the plants began to flower. Bees visited these flowers and helped pollinate them. Teachers explained that pollination helps the plants produce seeds. The students harvested their beans and shared them at lunch. They saved some seeds to plant the following spring. When the weather became colder, they covered empty beds with leaves. This kept the soil healthy. The project taught the children to work together, observe changes and care for living things.",

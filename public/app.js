@@ -95,7 +95,9 @@ function renderReading() {
 
 async function loadReading(targetGrade, date) {
   const key = `${date}-${targetGrade}`;
-  if (!usable || date !== today || state.days[date]?.[targetGrade].article?.body || loading.has(key)) return;
+  const existing = state.days[date]?.[targetGrade];
+  const enoughText = existing?.article?.body?.trim().split(/\s+/).length >= 100;
+  if (!usable || date !== today || enoughText || existing?.quiz || loading.has(key)) return;
   loading.add(key);
   errors.delete(key);
   renderReading();
@@ -110,7 +112,7 @@ async function loadReading(targetGrade, date) {
         !Number.isFinite(Date.parse(article.published))) throw new Error("The news source returned invalid data.");
     if (!update((next) => {
       const day = ensureDay(next, date);
-      if (!day[targetGrade].article || day[targetGrade].article.link === article.link) day[targetGrade].article = article;
+      if (!day[targetGrade].quiz) day[targetGrade].article = article;
     })) errors.set(key, "The article was fetched but could not be saved. Check your browser storage and try again.");
   } catch (error) {
     errors.set(key, `Unable to load your recommendation. ${error.message}`);

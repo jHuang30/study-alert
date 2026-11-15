@@ -50,13 +50,17 @@ async function loadArticles(grade) {
     const source = sources[grade];
     const response = await fetch(source.feed, { signal: AbortSignal.timeout(12000), headers: { Accept: "application/rss+xml" } });
     if (!response.ok) throw new Error(`News source returned HTTP ${response.status}`);
-    const articles = parseFeed(await response.text(), source);
+    const articles = parseFeed(await response.text(), source).filter(hasQuizText);
     if (!articles.length) throw new Error("News feed contained no eligible articles");
     cache.set(grade, { at: Date.now(), articles });
     return articles;
   })();
   pending.set(grade, request);
   try { return await request; } finally { pending.delete(grade); }
+}
+
+export function hasQuizText(article) {
+  return typeof article.body === "string" && article.body.length <= 45000 && article.body.trim().split(/\s+/).length >= 100;
 }
 
 export function selectArticle(articles, date) {
