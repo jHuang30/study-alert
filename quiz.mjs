@@ -12,13 +12,13 @@ export class QuizError extends Error {
 
 const string = { type: "string" };
 const object = (properties) => ({ type: "object", properties, required: Object.keys(properties), additionalProperties: false });
-const array = (items) => ({ type: "array", items });
+const array = (items, size) => ({ type: "array", items, ...(size ? { minItems: size, maxItems: size } : {}) });
 const quizSchema = object({
   suitable: { type: "boolean" },
   multipleChoice: array(object({
-    prompt: string, options: array(string), correctIndex: { type: "integer" }, explanation: string,
-  })),
-  shortAnswer: array(object({ prompt: string, referenceAnswer: string, rubric: string })),
+    prompt: string, options: array(string, 4), correctIndex: { type: "integer", minimum: 0, maximum: 3 }, explanation: string,
+  }), 5),
+  shortAnswer: array(object({ prompt: string, referenceAnswer: string, rubric: string }), 2),
 });
 const gradingSchema = object({
   shortAnswer: array(object({
