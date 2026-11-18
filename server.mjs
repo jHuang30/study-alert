@@ -63,9 +63,10 @@ export function hasQuizText(article) {
   return typeof article.body === "string" && article.body.length <= 45000 && article.body.trim().split(/\s+/).length >= 100;
 }
 
-export function selectArticle(articles, date) {
-  const eligible = articles.filter((article) => article.published.slice(0, 10) <= date).slice(0, 7);
-  if (!eligible.length) throw new Error("No article available for this date");
+export function selectArticle(articles, date, excludedLinks = []) {
+  const excluded = new Set(excludedLinks);
+  const eligible = articles.filter((article) => article.published.slice(0, 10) <= date && !excluded.has(article.link)).slice(0, 7);
+  if (!eligible.length) throw new Error("No unread article available for this date");
   const day = Math.floor(Date.parse(`${date}T00:00:00Z`) / 86400000);
   return eligible[day % eligible.length];
 }
@@ -161,7 +162,7 @@ export function createServer({ quizService } = {}) {
           res.end(JSON.stringify({ error: "Invalid grade or date." })); return;
         }
         try {
-          const article = selectArticle(await loadArticles(grade), date);
+          const article = selectArticle(await loadArticles(grade), date, url.searchParams.getAll("exclude"));
           res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
           res.end(JSON.stringify(article));
         } catch (error) {

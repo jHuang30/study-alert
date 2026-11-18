@@ -347,3 +347,11 @@ test("Ollama generates private quizzes without cloud credentials and rejects tru
     assert.equal(quiz.multipleChoice[0].correctIndex, undefined);
   } finally { await rm(dataDir, {recursive:true,force:true}); }
 });
+
+test("daily selection excludes previously read links even when feed order changes", () => {
+ const articles=Array.from({length:8},(_,i)=>({title:`story ${i}`,link:`https://example.com/${i}`,published:'2026-11-01T00:00:00Z'}));
+ const yesterday=selectArticle(articles,'2026-11-16');
+ const today=selectArticle(articles,'2026-11-17',articles.map(a=>a.link).filter(l=>l!==articles[7].link));
+ assert.equal(today.link,articles[7].link);
+ assert.throws(()=>selectArticle(articles,'2026-11-17',articles.map(a=>a.link)),/unread/i);
+});

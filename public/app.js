@@ -96,13 +96,19 @@ function renderReading() {
 async function loadReading(targetGrade, date) {
   const key = `${date}-${targetGrade}`;
   const existing = state.days[date]?.[targetGrade];
+  const seenLinks = [...new Set(Object.entries(state.days)
+    .filter(([day]) => day < date).sort(([a], [b]) => b.localeCompare(a))
+    .map(([, day]) => day[targetGrade]?.article?.link).filter(Boolean))].slice(0, 60);
+  const repeated = seenLinks.includes(existing?.article?.link);
   const enoughText = existing?.article?.body?.trim().split(/\s+/).length >= 100;
-  if (!usable || date !== today || enoughText || existing?.quiz || loading.has(key)) return;
+  if (!usable || date !== today || (enoughText && !repeated) || existing?.quiz || loading.has(key)) return;
   loading.add(key);
   errors.delete(key);
   renderReading();
   try {
-    const response = await fetch(`/api/reading?grade=${targetGrade}&date=${date}`, { signal: AbortSignal.timeout(20000) });
+    const params = new URLSearchParams({ grade: targetGrade, date });
+    seenLinks.forEach((link) => params.append("exclude", link));
+    const response = await fetch(`/api/reading?${params}`, { signal: AbortSignal.timeout(20000) });
     const article = await response.json();
     if (!response.ok) throw new Error(article.error || "Unable to fetch news. Please try again.");
     const validHost = targetGrade === "4" ? "www.timeforkids.com" : "www.snexplores.org";
