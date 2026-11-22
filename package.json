@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node server.mjs",
     "test": "node --test",
-    "check": "node --check server.mjs && node --check quiz.mjs && node --check public/app.js && node --check public/model.js && node --check public/quiz.js && node --check public/quiz-model.js"
+    "check": "node --check server.mjs && node --check quiz.mjs && node --check store.mjs && node --check public/sync.js && node --check public/report.js && node --check public/app.js && node --check public/model.js && node --check public/quiz.js && node --check public/quiz-model.js"
   },
-  "engines": { "node": ">=18" }
+  "engines": { "node": ">=22.5" }
 }

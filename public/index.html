@@ -26,6 +26,7 @@
         <label class="history-picker">View date <input id="day-picker" type="date" aria-label="View daily records"></label>
       </div>
       <div id="notice" role="alert" hidden></div>
+      <p id="sync-status" class="access-note" role="status" hidden></p>
       <section id="student-panel" role="tabpanel" aria-labelledby="tab-4">
         <div class="dashboard">
           <section class="checklist card">
@@ -55,10 +56,15 @@
           <div class="section-heading"><div><p class="eyebrow">READ · THINK · GROW</p><h2 id="quiz-heading">Put your reading to work</h2></div><span class="count-badge">7 questions</span></div>
           <div id="quiz-content"></div>
         </section>
+        <section class="weekly card" aria-labelledby="weekly-heading">
+          <div class="section-heading"><div><p class="eyebrow">FOR PARENTS</p><h2 id="weekly-heading">Weekly report</h2></div>
+            <div class="week-nav"><button type="button" id="week-prev" aria-label="Previous week">‹</button><span id="week-label"></span><button type="button" id="week-next" aria-label="Next week">›</button></div></div>
+          <div id="weekly-content" aria-live="polite"></div>
+        </section>
         <section class="family-summary"><div><span class="eyebrow">EVENING CHECK-IN</span><h3>One last check before bedtime.</h3><p>After 7 PM, this page highlights any unfinished goals.</p></div><div id="family-status" aria-live="polite"></div></section>
       </section>
     </main>
-    <footer><span class="brand-small">little daily.</span><span>Small habits. Big growth.</span><span>Saved in this browser only · Clearing browser data erases your records</span></footer>
+    <footer><span class="brand-small">little daily.</span><span>Small habits. Big growth.</span><span>Saved on the family server · Works from any device at home</span></footer>
   </div>
   <dialog id="delete-dialog">
     <form method="dialog"><h2>Remove this goal?</h2><p id="delete-label"></p><label id="delete-future-label" class="repeat"><input type="checkbox" id="delete-future"> Stop repeating this goal on future days, too</label><div class="dialog-actions"><button value="cancel">Cancel</button><button value="remove" class="danger">Remove</button></div></form>

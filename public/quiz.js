@@ -115,7 +115,7 @@ export function createQuizPanel({ getContext, save, element }) {
     details.append(element("summary", "", status?.configured ? "AI setup & privacy" : "Parent setup: connect OpenAI"));
     const paragraph = element("p", "", "A parent must set OPENAI_API_KEY in the server's environment, then restart npm start. Never enter an API key in a task or answer. OPENAI_MODEL is optional (default: gpt-5.4-mini).");
     details.append(paragraph, element("p", "", "Creating a quiz sends the article text to OpenAI. Submitting sends the article, questions and your short answers. API usage may cost money. Do not include names, contact details or other personal information."));
-    details.append(element("p", "", "OpenAI response storage is disabled (store: false); provider retention policies still apply. Answer keys are saved on this computer in .little-daily. Your answers and feedback are saved in this browser."));
+    details.append(element("p", "", "OpenAI response storage is disabled (store: false); provider retention policies still apply. Answer keys are saved on this computer in .little-daily. Your answers and feedback are saved on the family server."));
     container.append(details);
     if (statusError) {
       const warning = element("p", "quiz-error", statusError);

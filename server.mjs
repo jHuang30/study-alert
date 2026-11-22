@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { readingLevel } from "./public/model.js";
 import { createQuizService, QuizError } from "./quiz.mjs";
+import { createStore, StoreError } from "./store.mjs";
 
 const sources = {
   4: { name: "TIME for Kids", feed: "https://www.timeforkids.com/g34/feed/", host: "www.timeforkids.com", level: readingLevel("4"), path: "/g34/" },
@@ -77,19 +78,21 @@ const files = new Map([
   ["/model.js", ["model.js", "text/javascript"]],
   ["/quiz.js", ["quiz.js", "text/javascript"]],
   ["/quiz-model.js", ["quiz-model.js", "text/javascript"]],
+  ["/sync.js", ["sync.js", "text/javascript"]],
+  ["/report.js", ["report.js", "text/javascript"]],
   ["/style.css", ["style.css", "text/css"]],
 ]);
 
 const validDate = (date) => /^\d{4}-\d{2}-\d{2}$/.test(date ?? "") &&
   Number.isFinite(Date.parse(date)) && new Date(date).toISOString().slice(0, 10) === date;
 
-async function readJSON(req) {
+async function readJSON(req, limit = 20000) {
   if (req.headers["content-type"]?.split(";")[0] !== "application/json") throw new QuizError(415, "Send quiz requests as JSON.");
   let size = 0;
   const chunks = [];
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > 20000) throw new QuizError(413, "The submitted answers are too long.");
+    if (size > limit) throw new QuizError(413, "The submitted data is too long.");
     chunks.push(chunk);
   }
   try {
@@ -99,7 +102,9 @@ async function readJSON(req) {
   } catch { throw new QuizError(400, "The quiz request is not valid JSON."); }
 }
 
-export function createServer({ quizService } = {}) {
+export function createServer({ quizService, store: injectedStore } = {}) {
+  let store = injectedStore;
+  const profiles = () => store ??= createStore(process.env.DB_PATH || fileURLToPath(new URL("./.little-daily/little-daily.db", import.meta.url)));
   const quizzes = quizService ?? createQuizService({
     loadArticle: async (grade, link) => {
       let articles;
@@ -126,6 +131,29 @@ export function createServer({ quizService } = {}) {
         res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
         res.end(JSON.stringify(value));
       };
+      if (url.pathname.startsWith("/api/profile")) {
+        try {
+          if (req.method === "PUT") {
+            if (req.headers.origin !== `http://${host}` || req.headers["sec-fetch-site"] === "cross-site") {
+              throw new StoreError(403, "Profile updates must come from this website.");
+            }
+            const body = await readJSON(req, 400000);
+            if (url.pathname === "/api/profile/day") json(200, { applied: profiles().putDay(body.grade, body.date, body.record) });
+            else if (url.pathname === "/api/profile/templates") json(200, { applied: profiles().putTemplates(body.grade, body.templates, body.updatedAt) });
+            else throw new StoreError(404, "Unknown profile request.");
+          } else if (req.method === "GET" && url.pathname === "/api/profile") {
+            json(200, profiles().summary(url.searchParams.get("grade")));
+          } else if (req.method === "GET" && url.pathname === "/api/profile/data") {
+            const dates = (url.searchParams.get("dates") || "").split(",").filter(Boolean);
+            json(200, profiles().read(url.searchParams.get("grade"), dates, url.searchParams.get("templates") === "1"));
+          } else throw new StoreError(405, "Unsupported profile request.");
+        } catch (error) {
+          const known = error instanceof StoreError || error instanceof QuizError;
+          if (!known) console.error("Profile request failed:", error);
+          json(known ? error.status : 500, { error: known ? error.message : "Could not reach the saved profile." });
+        }
+        return;
+      }
       if (url.pathname === "/api/quiz" || url.pathname === "/api/grade") {
         try {
           if (req.method !== "POST") throw new QuizError(405, "Use POST for quiz requests.");
