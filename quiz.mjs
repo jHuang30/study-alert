@@ -12,13 +12,13 @@ export class QuizError extends Error {
 
 const string = { type: "string" };
 const object = (properties) => ({ type: "object", properties, required: Object.keys(properties), additionalProperties: false });
-const array = (items) => ({ type: "array", items });
+const array = (items, size) => ({ type: "array", items, ...(size ? { minItems: size, maxItems: size } : {}) });
 const quizSchema = object({
   suitable: { type: "boolean" },
   multipleChoice: array(object({
-    prompt: string, options: array(string), correctIndex: { type: "integer" }, explanation: string,
-  })),
-  shortAnswer: array(object({ prompt: string, referenceAnswer: string, rubric: string })),
+    prompt: string, options: array(string, 4), correctIndex: { type: "integer", minimum: 0, maximum: 3 }, explanation: string,
+  }), 5),
+  shortAnswer: array(object({ prompt: string, referenceAnswer: string, rubric: string }), 2),
 });
 const gradingSchema = object({
   shortAnswer: array(object({
@@ -49,7 +49,8 @@ function validPrivateQuiz(quiz) {
 export function createQuizService({
   loadArticle,
   apiKey = process.env.OPENAI_API_KEY,
-  model = process.env.OPENAI_MODEL || "gpt-5.4-mini",
+  ollamaUrl = process.env.OLLAMA_URL,
+  model = process.env.OLLAMA_MODEL || process.env.OPENAI_MODEL || "gpt-5.4-mini",
   dataDir = new URL("./.little-daily/quizzes/", import.meta.url),
   fetchImpl = fetch,
 } = {}) {
@@ -60,7 +61,7 @@ export function createQuizService({
   const file = (id) => directory instanceof URL ? new URL(`${id}.json`, directory) : join(directory, `${id}.json`);
 
   function requireKey() {
-    if (!apiKey?.trim()) throw new QuizError(503, "AI is not configured. A parent needs to set OPENAI_API_KEY on the server and restart the website.");
+    if (!ollamaUrl && !apiKey?.trim()) throw new QuizError(503, "AI is not configured. A parent needs to configure Ollama on the server.");
   }
 
   async function callAI(name, schema, instructions, data) {
@@ -68,6 +69,20 @@ export function createQuizService({
     if (active >= 2) throw new QuizError(429, "AI is working on another request. Please wait a moment and try again.");
     active++;
     try {
+      if (ollamaUrl) {
+        const response = await fetchImpl(`${ollamaUrl.replace(/\/$/, "")}/api/chat`, {
+          method: "POST", signal: AbortSignal.timeout(240000),
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ model, stream: false, think: false, format: schema,
+            messages: [{ role: "system", content: instructions }, { role: "user", content: JSON.stringify(data) }],
+            options: { temperature: 0.2, num_ctx: 8192, num_predict: 4000 }, keep_alive: "5m" }),
+        });
+        if (!response.ok) throw new QuizError(502, `Local Ollama returned HTTP ${response.status}. Check the configured model.`);
+        const result = await response.json();
+        if (result.done !== true || result.done_reason === "length") throw new QuizError(502, "Local AI did not finish. Please try again.");
+        try { return JSON.parse(result.message.content); }
+        catch { throw new QuizError(502, "Local AI returned invalid JSON. Please try again."); }
+      }
       const response = await fetchImpl("https://api.openai.com/v1/responses", {
         method: "POST",
         signal: AbortSignal.timeout(75000),
@@ -93,7 +108,7 @@ export function createQuizService({
     } catch (error) {
       if (error instanceof QuizError) throw error;
       if (error.name === "TimeoutError" || error.name === "AbortError") throw new QuizError(504, "AI took too long to respond. Your answers are still saved. Please try again.");
-      throw new QuizError(502, "Could not connect to OpenAI. Check the server's internet connection and try again.");
+      throw new QuizError(502, ollamaUrl ? "Could not connect to local Ollama. Check that Ollama is running." : "Could not connect to OpenAI. Check the server's internet connection and try again.");
     } finally {
       active--;
     }
@@ -113,7 +128,7 @@ export function createQuizService({
   }
 
   async function generate({ grade, date, link }) {
-    const id = digest(["quiz-v1", grade, date, link]);
+    const id = digest(["quiz-v1", ollamaUrl ? model : "openai", grade, date, link]);
     const key = `generate-${id}`;
     if (pending.has(key)) return pending.get(key);
     const job = (async () => {
@@ -201,5 +216,5 @@ The summary should encourage learning, not judge the child's ability. AI scores 
     try { return await job; } finally { pending.delete(key); }
   }
 
-  return { generate, grade, status: () => ({ configured: Boolean(apiKey?.trim()), model }) };
+  return { generate, grade, status: () => ({ configured: Boolean(ollamaUrl || apiKey?.trim()), model, provider: ollamaUrl ? "ollama" : "openai" }) };
 }

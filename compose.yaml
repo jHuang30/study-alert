@@ -1,0 +1,17 @@
+services:
+  study-alert:
+    build: .
+    container_name: study-alert
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3000
+      OLLAMA_URL: http://host.docker.internal:11434
+      OLLAMA_MODEL: hf.co/ukisai/Swift-1.5-Qwen3.8-27B-GGUF:Q4_K_M
+      ALLOWED_HOSTS: "192.168.1.230:3001,localhost:3001,127.0.0.1:3001"
+    volumes:
+      - study-data:/app/.little-daily
+volumes:
+  study-data:

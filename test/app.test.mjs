@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { initialState, ensureDay, addTask, removeTask, validateState, localDate, migrateToEnglish, readingLevel, addDailyActivities } from "../public/model.js";
-import { parseFeed, selectArticle, createServer } from "../server.mjs";
+import { parseFeed, selectArticle, createServer, hasQuizText } from "../server.mjs";
 import { createQuizService, QuizError } from "../quiz.mjs";
 import { initialQuizState, validQuizState } from "../public/quiz-model.js";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -145,6 +145,12 @@ test("HTTP serves the app, rejects invalid inputs, and does not expose arbitrary
 });
 
 const quizInput = { grade: "4", date: "2026-11-06", link: "https://www.timeforkids.com/g34/garden/" };
+test("daily reading excludes feed teasers that quiz generation cannot use", () => {
+  assert.equal(hasQuizText({ body: Array(96).fill("word").join(" ") }), false);
+  assert.equal(hasQuizText({ body: Array(100).fill("word").join(" ") }), true);
+  assert.equal(hasQuizText({}), false);
+  assert.equal(hasQuizText({ body: "word ".repeat(10000) }), false);
+});
 const articleFixture = {
   title: "A school garden", link: quizInput.link,
   body: "Students planted a school garden to grow vegetables for their cafeteria. They chose beans because the plants grow quickly. Every morning, a group checked the soil and watered it if it felt dry. They wrote observations in a shared notebook. After several weeks, the plants began to flower. Bees visited these flowers and helped pollinate them. Teachers explained that pollination helps the plants produce seeds. The students harvested their beans and shared them at lunch. They saved some seeds to plant the following spring. When the weather became colder, they covered empty beds with leaves. This kept the soil healthy. The project taught the children to work together, observe changes and care for living things.",
@@ -316,4 +322,165 @@ test("quiz endpoints reject cross-site calls and arbitrary article URLs and expo
     server.closeAllConnections();
     await new Promise((resolve) => server.close(resolve));
   }
+});
+
+test("Ollama generates private quizzes without cloud credentials and rejects truncated output", async () => {
+  const dataDir = await mkdtemp(join(tmpdir(), "ollama-quiz-"));
+  let truncated = true;
+  const service = createQuizService({dataDir, apiKey: "", ollamaUrl: "http://local-model:11434/", model: "local-test", loadArticle: async () => articleFixture,
+    fetchImpl: async (url, options) => {
+      assert.equal(url, "http://local-model:11434/api/chat");
+      assert.equal(options.headers.Authorization, undefined);
+      const body = JSON.parse(options.body);
+      assert.equal(body.stream, false);
+      assert.equal(body.model, "local-test");
+      assert.equal(JSON.parse(body.messages[1].content).articleText, articleFixture.body);
+      assert.ok(body.format.properties.multipleChoice);
+      return new Response(JSON.stringify({done:true,done_reason:truncated ? "length" : "stop",message:{content:JSON.stringify(generatedQuiz())}}));
+    }});
+  try {
+    assert.equal(service.status().provider, "ollama");
+    await assert.rejects(service.generate(quizInput), {status:502});
+    truncated = false;
+    const quiz = await service.generate(quizInput);
+    assert.equal(quiz.multipleChoice.length, 5);
+    assert.equal(quiz.multipleChoice[0].correctIndex, undefined);
+  } finally { await rm(dataDir, {recursive:true,force:true}); }
+});
+
+test("daily selection excludes previously read links even when feed order changes", () => {
+ const articles=Array.from({length:8},(_,i)=>({title:`story ${i}`,link:`https://example.com/${i}`,published:'2026-11-01T00:00:00Z'}));
+ const yesterday=selectArticle(articles,'2026-11-16');
+ const today=selectArticle(articles,'2026-11-17',articles.map(a=>a.link).filter(l=>l!==articles[7].link));
+ assert.equal(today.link,articles[7].link);
+ assert.throws(()=>selectArticle(articles,'2026-11-17',articles.map(a=>a.link)),/unread/i);
+});
+
+import { createStore } from "../store.mjs";
+import { stampChanges, isBlank, createSync } from "../public/sync.js";
+
+const stampA = "2026-11-06T08:00:00.000Z";
+const stampB = "2026-11-06T09:00:00.000Z";
+const record = (done, updatedAt) => ({ tasks: [{ id: "reading-4", text: "Read today's English article", recurring: true, done }], article: null, updatedAt });
+
+test("SQLite store keeps the two children's profiles separate and the newest write wins", () => {
+  const store = createStore(":memory:");
+  assert.equal(store.putDay("4", "2026-11-06", record(true, stampB)), true);
+  assert.equal(store.putDay("4", "2026-11-06", record(false, stampA)), false);
+  assert.equal(store.read("4", ["2026-11-06"]).days["2026-11-06"].tasks[0].done, true);
+  assert.deepEqual(store.summary("7").days, {});
+  assert.deepEqual(store.summary("4").days, { "2026-11-06": stampB });
+  assert.equal(store.putTemplates("7", [{ id: "a", text: "Math" }], stampA), true);
+  assert.equal(store.read("4", [], true).templates, null);
+  assert.equal(store.read("7", [], true).templates.templates[0].text, "Math");
+  assert.throws(() => store.putDay("5", "2026-11-06", record(true, stampA)), /Unknown profile/);
+  assert.throws(() => store.putDay("4", "2026-11-06", { tasks: "x", article: null, updatedAt: stampA }), /Invalid record/);
+  assert.throws(() => store.putDay("4", "2026-11-06", record(true, "yesterday")), /Invalid record/);
+  store.close();
+});
+
+test("profile API saves and returns progress, and rejects cross-site writes", async () => {
+  const store = createStore(":memory:");
+  const server = createServer({ store });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const host = `127.0.0.1:${server.address().port}`;
+  const base = `http://${host}`;
+  const put = (path, body, origin = base) => fetch(base + path, {
+    method: "PUT", headers: { "Content-Type": "application/json", Origin: origin }, body: JSON.stringify(body),
+  });
+  try {
+    assert.equal((await put("/api/profile/day", { grade: "7", date: "2026-11-06", record: record(true, stampA) })).status, 200);
+    assert.equal((await put("/api/profile/day", { grade: "7", date: "2026-11-06", record: record(true, stampB) }, "http://evil.example")).status, 403);
+    const summary = await (await fetch(`${base}/api/profile?grade=7`)).json();
+    assert.deepEqual(summary.days, { "2026-11-06": stampA });
+    const data = await (await fetch(`${base}/api/profile/data?grade=7&dates=2026-11-06`)).json();
+    assert.equal(data.days["2026-11-06"].tasks[0].done, true);
+    assert.equal((await fetch(`${base}/api/profile?grade=9`)).status, 400);
+  } finally {
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+    store.close();
+  }
+});
+
+test("only user changes are stamped; blank generated days never overwrite progress", () => {
+  const state = initialState();
+  ensureDay(state, "2026-11-06");
+  const before = structuredClone(state);
+  ensureDay(state, "2026-11-07");
+  stampChanges(before, state, stampA);
+  assert.equal(state.days["2026-11-07"]["4"].updatedAt, undefined);
+  assert.ok(isBlank(state.days["2026-11-07"]["4"], state.templates["4"]));
+  const edited = structuredClone(state);
+  edited.days["2026-11-06"]["4"].tasks[0].done = true;
+  addTask(edited, "2026-11-06", "7", "Chess", true, "chess");
+  stampChanges(state, edited, stampB);
+  assert.equal(edited.days["2026-11-06"]["4"].updatedAt, stampB);
+  assert.equal(edited.days["2026-11-06"]["7"].updatedAt, stampB);
+  assert.equal(edited.templatesUpdatedAt["7"], stampB);
+  assert.equal(edited.templatesUpdatedAt["4"], undefined);
+});
+
+test("two devices converge through the server: progress from one appears on the other", async () => {
+  const store = createStore(":memory:");
+  const server = createServer({ store });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const request = (path, options) => fetch(base + path, { ...options, headers: { ...options?.headers, Origin: base } });
+  const device = () => {
+    let state = initialState();
+    ensureDay(state, "2026-11-06");
+    const update = (mutate, { system = false } = {}) => {
+      const next = structuredClone(state);
+      const before = structuredClone(next);
+      mutate(next);
+      if (!system) stampChanges(before, next, new Date().toISOString());
+      state = next;
+      return true;
+    };
+    return { update, get state() { return state; }, sync: createSync({ getState: () => state, update, request }) };
+  };
+  try {
+    const phone = device();
+    const laptop = device();
+    phone.update((next) => { next.days["2026-11-06"]["4"].tasks[0].done = true; });
+    await phone.sync.run();
+    await laptop.sync.run();
+    assert.equal(laptop.state.days["2026-11-06"]["4"].tasks[0].done, true);
+    assert.equal(laptop.state.days["2026-11-06"]["7"].tasks[0].done, false);
+    assert.ok(validateState(laptop.state));
+  } finally {
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+    store.close();
+  }
+});
+
+import { weekStart, weekReport } from "../public/report.js";
+
+const gradedResult = (mc, short) => ({
+  max: 100, total: mc * 10 + short * 2, summary: "ok", gradedAt: stampA,
+  multipleChoice: Array.from({ length: 5 }, (_, i) => ({ score: i < mc ? 10 : 0, correctIndex: 0, explanation: "x" })),
+  shortAnswer: [0, 1].map(() => ({ score: short, feedback: "x", languageTips: "Use full sentences." })),
+});
+
+test("weekly report summarizes goals and scores and flags weak areas", () => {
+  assert.equal(weekStart("2026-11-22"), "2026-11-16");
+  assert.equal(weekStart("2026-11-16"), "2026-11-16");
+  const state = initialState();
+  for (const date of ["2026-11-16", "2026-11-17", "2026-11-18"]) ensureDay(state, date);
+  state.days["2026-11-16"]["4"].tasks[0].done = true;
+  const article = { title: "T", link: "https://www.timeforkids.com/g34/x/", published: stampA, source: "TIME for Kids", level: "L" };
+  for (const date of ["2026-11-16", "2026-11-17"]) state.days[date]["4"].article = article;
+  state.days["2026-11-16"]["4"].quiz = { questions: {}, answers: {}, result: gradedResult(2, 10) };
+  const report = weekReport(state, "4", "2026-11-16", "2026-11-18");
+  assert.equal(report.summary.quizzes, 1);
+  assert.equal(report.summary.expectedQuizzes, 2);
+  assert.equal(report.summary.mcAccuracy, 0.4);
+  assert.equal(report.summary.shortAverage, 10);
+  assert.equal(report.days[5].future, true);
+  assert.ok(report.advice.some((line) => /Multiple choice/.test(line)));
+  assert.ok(report.advice.some((line) => /Short answers/.test(line)));
+  assert.ok(report.advice.some((line) => /no graded quiz/.test(line)));
+  assert.deepEqual(weekReport(state, "7", "2026-10-05", "2026-11-18").advice, ["No records yet this week."]);
 });

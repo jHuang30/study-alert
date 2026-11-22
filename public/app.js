@@ -1,5 +1,7 @@
 import { grades, localDate, initialState, ensureDay, addTask, removeTask, validateState, migrateToEnglish, addDailyActivities } from "./model.js";
 import { createQuizPanel } from "./quiz.js";
+import { createSync, stampChanges } from "./sync.js";
+import { weekReport, weekStart, addDays } from "./report.js";
 
 const $ = (selector) => document.querySelector(selector);
 const storageKey = "little-daily-v1";
@@ -12,6 +14,8 @@ let errors = new Map();
 let deleting = null;
 let usable = true;
 let quizPanel;
+let sync;
+let reportWeek = weekStart(today);
 
 function notice(message) {
   $("#notice").textContent = message;
@@ -31,18 +35,21 @@ try {
   notice(`Unable to read or save your records: ${error.message}. Allow local storage in your browser, then refresh. Existing records will not be overwritten.`);
 }
 
-function update(mutate) {
+function update(mutate, { system = false } = {}) {
   if (!usable) return false;
   try {
     const stored = localStorage.getItem(storageKey);
     const next = stored ? JSON.parse(stored) : structuredClone(state);
     if (!validateState(next)) throw new Error("Unrecognized saved data format. Please refresh the page");
+    const before = structuredClone(next);
     mutate(next);
     migrateToEnglish(next);
+    if (!system) stampChanges(before, next, new Date().toISOString());
     if (!validateState(next)) throw new Error("The updated records are invalid. No changes were saved");
     localStorage.setItem(storageKey, JSON.stringify(next));
     state = next;
     notice("");
+    if (!system) sync?.schedule();
     return true;
   } catch (error) {
     notice(`Changes were not saved: ${error.message}. Check your browser's available storage and try again.`);
@@ -70,7 +77,15 @@ function renderReading() {
     link.href = article.link;
     link.target = "_blank";
     link.rel = "noopener noreferrer";
-    container.append(link, element("p", "access-note", "Links to the original article only. Some stories may require registration or a subscription."));
+    if (article.body) {
+      const reading = element("section", "article-text");
+      reading.setAttribute("aria-label", "Article text");
+      reading.append(element("p", "", article.body));
+      container.append(reading);
+    } else {
+      container.append(element("p", "muted", errors.get(key) || "Loading article text…"));
+    }
+    container.append(link, element("p", "access-note", "Text supplied by the publisher's news feed. Visit the original for images and full formatting."));
   } else if (selectedDate !== today) {
     container.append(element("p", "muted", "No reading recommendation was saved for this day."));
   } else {
@@ -87,12 +102,20 @@ function renderReading() {
 
 async function loadReading(targetGrade, date) {
   const key = `${date}-${targetGrade}`;
-  if (!usable || date !== today || state.days[date]?.[targetGrade].article || loading.has(key)) return;
+  const existing = state.days[date]?.[targetGrade];
+  const seenLinks = [...new Set(Object.entries(state.days)
+    .filter(([day]) => day < date).sort(([a], [b]) => b.localeCompare(a))
+    .map(([, day]) => day[targetGrade]?.article?.link).filter(Boolean))].slice(0, 60);
+  const repeated = seenLinks.includes(existing?.article?.link);
+  const enoughText = existing?.article?.body?.trim().split(/\s+/).length >= 100;
+  if (!usable || date !== today || (enoughText && !repeated) || existing?.quiz || loading.has(key)) return;
   loading.add(key);
   errors.delete(key);
   renderReading();
   try {
-    const response = await fetch(`/api/reading?grade=${targetGrade}&date=${date}`, { signal: AbortSignal.timeout(20000) });
+    const params = new URLSearchParams({ grade: targetGrade, date });
+    seenLinks.forEach((link) => params.append("exclude", link));
+    const response = await fetch(`/api/reading?${params}`, { signal: AbortSignal.timeout(20000) });
     const article = await response.json();
     if (!response.ok) throw new Error(article.error || "Unable to fetch news. Please try again.");
     const validHost = targetGrade === "4" ? "www.timeforkids.com" : "www.snexplores.org";
@@ -102,7 +125,7 @@ async function loadReading(targetGrade, date) {
         !Number.isFinite(Date.parse(article.published))) throw new Error("The news source returned invalid data.");
     if (!update((next) => {
       const day = ensureDay(next, date);
-      if (!day[targetGrade].article) day[targetGrade].article = article;
+      if (!day[targetGrade].quiz) day[targetGrade].article = article;
     })) errors.set(key, "The article was fetched but could not be saved. Check your browser storage and try again.");
   } catch (error) {
     errors.set(key, `Unable to load your recommendation. ${error.message}`);
@@ -110,6 +133,11 @@ async function loadReading(targetGrade, date) {
     loading.delete(key);
     renderReading();
   }
+}
+
+function setSyncStatus(message) {
+  $("#sync-status").textContent = message;
+  $("#sync-status").hidden = !message;
 }
 
 function render() {
@@ -184,7 +212,49 @@ function render() {
     return element("span", `family-pill ${items.length && done === items.length ? "complete" : ""}`, `Grade ${item}  ${done} / ${items.length} ${items.length && done === items.length ? "✓" : ""}`);
   }));
   renderReading();
+  renderWeekly();
 }
+
+function renderWeekly() {
+  const { days, summary, advice } = weekReport(state, grade, reportWeek, today);
+  const box = $("#weekly-content");
+  box.replaceChildren();
+  $("#week-label").textContent = `${days[0].date} – ${days[6].date}`;
+  $("#week-next").disabled = addDays(reportWeek, 7) > today;
+  const pct = (value) => value === null ? "–" : `${Math.round(value * 100)}%`;
+  const stats = element("div", "week-stats");
+  [["Goals done", summary.goalsTotal ? pct(summary.goalsDone / summary.goalsTotal) : "–"],
+   ["Quizzes graded", `${summary.quizzes} / ${summary.expectedQuizzes}`],
+   ["Average score", summary.average === null ? "–" : `${summary.average} / 100`],
+   ["Multiple choice", pct(summary.mcAccuracy)],
+   ["Short answers", summary.shortAverage === null ? "–" : `${summary.shortAverage} / 25`]].forEach(([label, value]) => {
+    const item = element("div", "week-stat");
+    item.append(element("strong", "", value), element("span", "", label));
+    stats.append(item);
+  });
+  const table = element("table", "week-table");
+  const head = element("tr");
+  ["Day", "Goals", "Quiz", "Article"].forEach((name) => head.append(element("th", "", name)));
+  table.append(head);
+  days.forEach((day) => {
+    const row = element("tr", day.future ? "future" : "");
+    const name = new Date(`${day.date}T00:00:00`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+    row.append(element("td", "", name), element("td", "", day.future || !day.total ? "–" : `${day.done} / ${day.total}`),
+      element("td", "", day.result ? `${day.result.total} / 100` : day.drafted ? "In progress" : "–"), element("td", "", day.article ?? "–"));
+    table.append(row);
+  });
+  const notes = element("ul", "week-advice");
+  advice.forEach((line) => notes.append(element("li", "", line)));
+  box.append(stats, table, element("h3", "week-subhead", "What to work on"), notes);
+  if (summary.tips.length) {
+    const tips = element("ul", "week-advice");
+    summary.tips.forEach((line) => tips.append(element("li", "", line)));
+    box.append(element("h3", "week-subhead", "Recent writing tips from AI feedback"), tips);
+  }
+  box.append(element("p", "access-note", "Scores come from AI feedback, which is a learning aid and not an official grade."));
+}
+$("#week-prev").addEventListener("click", () => { reportWeek = addDays(reportWeek, -7); renderWeekly(); });
+$("#week-next").addEventListener("click", () => { if (addDays(reportWeek, 7) <= today) { reportWeek = addDays(reportWeek, 7); renderWeekly(); } });
 
 $("#add-form").addEventListener("submit", (event) => {
   event.preventDefault();
@@ -247,8 +317,8 @@ window.addEventListener("storage", (event) => {
     render();
   } catch (error) { usable = false; notice(`${error.message}. Refresh the page to continue.`); render(); }
 });
-document.addEventListener("visibilitychange", () => { if (!document.hidden) tick(); });
-setInterval(tick, 60000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) { tick(); sync?.run(); } });
+setInterval(() => { tick(); sync?.run(); }, 60000);
 quizPanel = createQuizPanel({
   getContext: () => ({ grade, date: selectedDate, today, record: state?.days?.[selectedDate]?.[grade], usable }),
   save: (date, targetGrade, mutate) => update((next) => {
@@ -259,4 +329,8 @@ quizPanel = createQuizPanel({
   element,
 });
 render();
-if (usable) grades.forEach((item) => loadReading(item, today));
+if (usable) {
+  sync = createSync({ getState: () => state, update, onChange: render, onStatus: setSyncStatus });
+  // Pull saved progress from the server first so every device agrees on today's article and scores.
+  sync.run().finally(() => grades.forEach((item) => loadReading(item, today)));
+}
